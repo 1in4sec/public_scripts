@@ -9,14 +9,14 @@ RESET="\e[0m"
 
 # Configuration
 export compartment_id=""
-export group_name="Group_for_Api_used"
+export group_name="Group_for_API_User"
 export group_des="API access group with restricted permissions (no IAM user management)"
-export policy_name="Policy_for_Api_used"
+export policy_name="Policy_for_API_User"
 export policy_des="Policy granting limited resource management for API usage"
 export policy_file="file://statements.json"
-export user_name="User_for_Api_used"
+export user_name="API_User"
 export user_des="Service user for API access with restricted permissions"
-export user_email="xxxxxx@domain.com"
+export user_email="xxxxapiuserxx@ocidomain.com"
 export type="new"
 export ignore_error="0"
 export api_key_file="./api_public.pem"   # Path to public key file
