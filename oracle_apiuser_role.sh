@@ -1,4 +1,3 @@
-```bash
 #!/bin/bash
 set -e
 
@@ -179,4 +178,3 @@ log_success "User added to group"
 echo -e "\n${GREEN}Done!${RESET}"
 echo -e "User: ${YELLOW}$user_name${RESET}"
 echo -e "You can now add API keys to this user (no login required)."
-```
