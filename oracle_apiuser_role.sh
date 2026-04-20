@@ -5,7 +5,7 @@
 RED="\e[31m"
 GREEN="\e[32m"
 RESET="\e[0m"
-# 参数
+# Parameter
 export compartment_id=""     # Tenant OCID
 export group_name="Group_for_Api_used"    # Group name
 export group_des="This user group is for API use, with restricted permissions to prevent API from performing user-related operations"    # Group description
@@ -14,7 +14,7 @@ export policy_des="This policy is for API use, with restricted permissions to pr
 export policy_file="file://statements.json" # Policy statement file
 export user_name="User_for_Api_used"    # User name
 export user_des="This user is for API use, with restricted permissions to prevent API from performing user-related operations"    # User description
-export user_email="xxxxxx@domain.com"   # User email (required when type is 'new')
+export user_email="xxxxapiuserxxx@ocidomain.com"   # User email (required when type is 'new')
 export type="new"       # Control panel type: new or old
 export ignore_error="0"      # Ignore errors
 while [[ $# -ge 1 ]]; do
@@ -78,7 +78,7 @@ while [[ $# -ge 1 ]]; do
   ;;
  esac
  done
-# 检查参数
+# Check Parameter
 if [ "$type" == "new" ]; then
  if [ "$user_email" == "" ]; then
  echo -e "${RED}User email cannot be empty${RESET}"
@@ -116,7 +116,7 @@ function check() {
 # retrieveTenant OCID
 compartment_id=$(oci iam availability-domain list --query 'data[0]."compartment-id"' --raw-output)
 echo -e "${GREEN}Tenant OCID: $compartment_id ${RESET}"
-# delete已有组
+# delete group if exist
 group_id_old=$(oci iam  group list --compartment-id $compartment_id --name $group_name --query 'data[0]."id"' --raw-output)
 if [ "$group_id_old" == "" ]; then
  echo -e "${GREEN}No need to delete existing group"
@@ -124,11 +124,11 @@ else
  group_old_result=$(oci iam group delete --group-id $group_id_old --force 2>&1)
  check "$group_old_result" "Existing group deleted successfully"
 fi
-# create组
+# create group 
 group_result=$(oci iam group create --compartment-id $compartment_id --name $group_name --description $group_des 2>&1)
 check "$group_result" "Group created successfully"
 group_id=$(echo $group_result | jq -r '.data.id')
-# delete已有策略
+# delete policy if exist 
 policy_id_old=$(oci iam policy list --compartment-id $compartment_id --name $policy_name --query 'data[0]."id"' --raw-output)
 if [ "$policy_id_old" == "" ]; then
  echo -e "${GREEN}No existing policy, skipping deletion"
@@ -136,10 +136,10 @@ else
  policy_old_result=$(oci iam policy delete --policy-id $policy_id_old --force 2>&1)
  check "$policy_old_result" "Existing policy deleted successfully"
 fi
-# create策略
+# create policy 
 policy_result=$(oci iam policy create --compartment-id $compartment_id --description $policy_des --name $policy_name --statements $policy_file 2>&1)
 check "$policy_result" "Policy created successfully"
-# create用户
+# create user 
 user_id_old=$(oci iam user list --compartment-id $compartment_id --name $user_name --query 'data[0]."id"' --raw-output)
 if [ "$user_id_old" == "" ]; then
  if [ "$user_email" == "" ]; then
@@ -154,6 +154,6 @@ else
  user_id=$user_id_old
  echo -e "${GREEN}User already exists, skipping creation"
 fi
-# 将用户add到组
+# add result 
 add_result=$(oci iam group add-user --group-id $group_id --user-id $user_id 2>&1)
-check "$add_result" "User successfully added to group\n\nYou can later manually add an API key to the user $user_name 中add API密钥 (无需登录该用户)"
+check "$add_result" "User successfully added to group\n\nYou can later manually add an API key to the user $user_name add API Key (No need to log in to this user)"
