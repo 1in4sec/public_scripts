@@ -1,22 +1,25 @@
 #!/bin/bash
-# Add a user who does not have user management permissions and can only manage instances, storage, and network
-# Execute in Cloud Shell
+# Create an API service user with restricted permissions (no IAM user management).
+# Intended for use in OCI Cloud Shell.
+
 # Colors
 RED="\e[31m"
 GREEN="\e[32m"
 RESET="\e[0m"
-# Parameter
-export compartment_id=""     # Tenant OCID
-export group_name="Group_for_Api_used"    # Group name
-export group_des="This user group is for API use, with restricted permissions to prevent API from performing user-related operations"    # Group description
-export policy_name="Policy_for_Api_used"   # Policy name
-export policy_des="This policy is for API use, with restricted permissions to prevent API from performing user-related operations"    # Policy description
-export policy_file="file://statements.json" # Policy statement file
-export user_name="User_for_Api_used"    # User name
-export user_des="This user is for API use, with restricted permissions to prevent API from performing user-related operations"    # User description
-export user_email="xxxxapiuserxxx@ocidomain.com"   # User email (required when type is 'new')
-export type="new"       # Control panel type: new or old
-export ignore_error="0"      # Ignore errors
+
+# Configuration
+export compartment_id=""     # Tenancy OCID
+export group_name="Group_for_Api_used"    # IAM group name
+export group_des="API access group with restricted permissions (no IAM user management)"    # Group description
+export policy_name="Policy_for_Api_used"   # IAM policy name
+export policy_des="Policy granting limited resource management for API usage"    # Policy description
+export policy_file="file://statements.json" # Policy statements file
+export user_name="User_for_Api_used"    # IAM user name
+export user_des="Service user for API access with restricted permissions"    # User description
+export user_email="xxxxxx@domain.com"   # Required if type=new
+export type="new"       # Console type: new | old
+export ignore_error="0"      # Continue on error (1=true)
+
 while [[ $# -ge 1 ]]; do
  case $1 in
  -c | --compartment_id )
@@ -69,23 +72,38 @@ while [[ $# -ge 1 ]]; do
   ignore_error="1"
   ;;
  -h | --help )
-  echo -ne "Usage: bash $(basename $0) [options]\n\033[33m\033[04m-c\033[0m\t\tTenant OCID, default自动retrieve\n\033[33m\033[04m-g\033[0m\t\tGroup name, defaultCore-Admins\n\033[33m\033[04m-gd\033[0m\t\tGroup description, defaultCore-Admins\n\033[33m\033[04m-p\033[0m\t\tPolicy name, defaultCore-Admins\n\033[33m\033[04m-pd\033[0m\t\tPolicy description, defaultCore-Admins\n\033[33m\033[04m-pf\033[0m\t\tPolicy statement file, defaultfile://statements.json\n\033[33m\033[04m-u\033[0m\t\tUser name, defaultCore-Admin\n\033[33m\033[04m-ud\033[0m\t\tUser description, defaultCore-Admin\n\033[33m\033[04m-ue\033[0m\t\t用户邮箱, 当type为new时required, defaultxx@domain.sssss\n\033[33m\033[04m-t\033[0m\t\t控制面板类型, new或者old, defaultold\n\033[33m\033[04m--ignore_error\033[0m\tIgnore errors返回信息\n\033[33m\033[04m-h\033[0m\t\tHelp\n\nExample: bash $(basename $0) -ue xx@xx.com -t new --ignore_error \n"
+  echo -ne "Usage: bash $(basename $0) [options]\n\
+\033[33m\033[04m-c\033[0m\t\tTenancy OCID (auto-detected if omitted)\n\
+\033[33m\033[04m-g\033[0m\t\tGroup name\n\
+\033[33m\033[04m-gd\033[0m\t\tGroup description\n\
+\033[33m\033[04m-p\033[0m\t\tPolicy name\n\
+\033[33m\033[04m-pd\033[0m\t\tPolicy description\n\
+\033[33m\033[04m-pf\033[0m\t\tPolicy statements file (default: file://statements.json)\n\
+\033[33m\033[04m-u\033[0m\t\tUser name\n\
+\033[33m\033[04m-ud\033[0m\t\tUser description\n\
+\033[33m\033[04m-ue\033[0m\t\tUser email (required if type=new)\n\
+\033[33m\033[04m-t\033[0m\t\tConsole type: new | old (default: old)\n\
+\033[33m\033[04m--ignore_error\033[0m\tContinue execution on errors\n\
+\033[33m\033[04m-h\033[0m\t\tHelp\n\n\
+Example: bash $(basename $0) -ue user@example.com -t new --ignore_error\n"
   exit 1;
   ;;
  * )
-  echo -e "${RED}Invalid parameter: $1${RESET}"
+  echo -e "${RED}Invalid argument: $1${RESET}"
   exit 1;
   ;;
  esac
- done
-# Check Parameter
+done
+
+# Validate input
 if [ "$type" == "new" ]; then
- if [ "$user_email" == "" ]; then
- echo -e "${RED}User email cannot be empty${RESET}"
- exit 1
+ if [ -z "$user_email" ]; then
+  echo -e "${RED}User email is required when type=new${RESET}"
+  exit 1
  fi
 fi
-# Policy statements
+
+# Generate policy statements
 if [ "$type" == "new" ]; then
  echo "[
  \"Allow group 'Default'/'$group_name' to manage instance-family in tenancy\",
@@ -97,63 +115,70 @@ else
  echo "[
  \"Allow group $group_name to manage instance-family in tenancy\",
  \"Allow group $group_name to manage volume-family in tenancy\",
- \"Allow group $group_name to manage virtual-network-family in tenancy\"
+ \"Allow group $group_name to manage virtual-network-family in tenancy\",
  \"Allow group $group_name to read all-resources in tenancy\"
  ]" > statements.json
 fi
-# Check command execution result
+
+# Helper: validate OCI CLI response
 function check() {
  if echo "$1" | grep -q "ServiceError"; then
- err_msg=$(echo "$1" | sed -n 's/.*"message": "\(.*\)",/\1/p')
- echo -e "${RED}Command execution failed：$err_msg${RESET}"
- if [ "$ignore_error" == "0" ]; then
-  exit 1
- fi
+  err_msg=$(echo "$1" | sed -n 's/.*"message": "\(.*\)",/\1/p')
+  echo -e "${RED}ERROR: $err_msg${RESET}"
+  if [ "$ignore_error" == "0" ]; then
+   exit 1
+  fi
  else
- echo -e "${GREEN}$2${RESET}"
+  echo -e "${GREEN}$2${RESET}"
  fi
 }
-# retrieveTenant OCID
+
+# Resolve tenancy OCID
 compartment_id=$(oci iam availability-domain list --query 'data[0]."compartment-id"' --raw-output)
-echo -e "${GREEN}Tenant OCID: $compartment_id ${RESET}"
-# delete group if exist
-group_id_old=$(oci iam  group list --compartment-id $compartment_id --name $group_name --query 'data[0]."id"' --raw-output)
-if [ "$group_id_old" == "" ]; then
- echo -e "${GREEN}No need to delete existing group"
+echo -e "${GREEN}Tenancy OCID: $compartment_id${RESET}"
+
+# Remove existing group (if any)
+group_id_old=$(oci iam group list --compartment-id $compartment_id --name $group_name --query 'data[0]."id"' --raw-output)
+if [ -z "$group_id_old" ]; then
+ echo -e "${GREEN}No existing group found${RESET}"
 else
  group_old_result=$(oci iam group delete --group-id $group_id_old --force 2>&1)
- check "$group_old_result" "Existing group deleted successfully"
+ check "$group_old_result" "Existing group deleted"
 fi
-# create group 
-group_result=$(oci iam group create --compartment-id $compartment_id --name $group_name --description $group_des 2>&1)
-check "$group_result" "Group created successfully"
+
+# Create group
+group_result=$(oci iam group create --compartment-id $compartment_id --name $group_name --description "$group_des" 2>&1)
+check "$group_result" "Group created"
 group_id=$(echo $group_result | jq -r '.data.id')
-# delete policy if exist 
+
+# Remove existing policy (if any)
 policy_id_old=$(oci iam policy list --compartment-id $compartment_id --name $policy_name --query 'data[0]."id"' --raw-output)
-if [ "$policy_id_old" == "" ]; then
- echo -e "${GREEN}No existing policy, skipping deletion"
+if [ -z "$policy_id_old" ]; then
+ echo -e "${GREEN}No existing policy found${RESET}"
 else
  policy_old_result=$(oci iam policy delete --policy-id $policy_id_old --force 2>&1)
- check "$policy_old_result" "Existing policy deleted successfully"
+ check "$policy_old_result" "Existing policy deleted"
 fi
-# create policy 
-policy_result=$(oci iam policy create --compartment-id $compartment_id --description $policy_des --name $policy_name --statements $policy_file 2>&1)
-check "$policy_result" "Policy created successfully"
-# create user 
+
+# Create policy
+policy_result=$(oci iam policy create --compartment-id $compartment_id --description "$policy_des" --name $policy_name --statements $policy_file 2>&1)
+check "$policy_result" "Policy created"
+
+# Create or reuse user
 user_id_old=$(oci iam user list --compartment-id $compartment_id --name $user_name --query 'data[0]."id"' --raw-output)
-if [ "$user_id_old" == "" ]; then
- if [ "$user_email" == "" ]; then
-  user_result=$(oci iam user create --name $user_name --description $user_des --compartment-id $compartment_id 2>&1)
+if [ -z "$user_id_old" ]; then
+ if [ -z "$user_email" ]; then
+  user_result=$(oci iam user create --name $user_name --description "$user_des" --compartment-id $compartment_id 2>&1)
  else
-  user_result=$(oci iam user create --name $user_name --description $user_des --compartment-id $compartment_id --email $user_email 2>&1)
+  user_result=$(oci iam user create --name $user_name --description "$user_des" --compartment-id $compartment_id --email $user_email 2>&1)
  fi
- check "$user_result" "User created successfully"
+ check "$user_result" "User created"
  user_id=$(echo $user_result | jq -r '.data.id')
 else
- #user_old_result=$(oci iam user delete --user-id $user_id_old --force 2>&1)
  user_id=$user_id_old
- echo -e "${GREEN}User already exists, skipping creation"
+ echo -e "${GREEN}User already exists (skipped)${RESET}"
 fi
-# add result 
+
+# Add user to group
 add_result=$(oci iam group add-user --group-id $group_id --user-id $user_id 2>&1)
-check "$add_result" "User successfully added to group\n\nYou can later manually add an API key to the user $user_name add API Key (No need to log in to this user)"
+check "$add_result" "User added to group\n\nNext step: add an API key to user $user_name (no login required)"
