@@ -16,7 +16,7 @@ export policy_des="Policy granting limited resource management for API usage"
 export policy_file="file://statements.json"
 export user_name="API_User"
 export user_des="Service user for API access with restricted permissions"
-export user_email="xxxxapiuserxx@ocidomain.com"
+export user_email="xxxxapiuserxx@oci.domain"
 export type="new"
 export ignore_error="0"
 export api_key_file="./api_public.pem"   # Path to public key file
@@ -297,6 +297,7 @@ if [ -z "$api_key_fingerprint" ]; then
  api_key_fingerprint="<api key fingerprint>"
 fi
 
+printf "%b" "$GREEN"
 cat <<EOF
 [DEFAULT]
 user=$user_id
@@ -305,3 +306,4 @@ tenancy=$compartment_id
 region=$region
 key_file=$private_key_file
 EOF
+printf "%b" "$RESET"
