@@ -20,6 +20,8 @@ export user_email="xxxxapiuserxx@ocidomain.com"
 export type="new"
 export ignore_error="0"
 export api_key_file="./api_public.pem"   # Path to public key file
+export private_key_file="<path to your private keyfile>" # Path to private key file for OCI CLI config output
+export region="${OCI_CLI_REGION:-${OCI_REGION:-}}"
 
 while [[ $# -ge 1 ]]; do
  case $1 in
@@ -43,10 +45,17 @@ while [[ $# -ge 1 ]]; do
   shift; type="$1"; shift ;;
  -kf | --key_file )
   shift; api_key_file="$1"; shift ;;
+ -pkf | --private_key_file )
+  shift; private_key_file="$1"; shift ;;
+ -r | --region )
+  shift; region="$1"; shift ;;
  --ignore_error )
   shift; ignore_error="1" ;;
  -h | --help )
   echo "Usage: bash $(basename $0) [options]"
+  echo "  -kf,  --key_file <path>             Public API key file to upload"
+  echo "  -pkf, --private_key_file <path>     Private key path to print in OCI config"
+  echo "  -r,   --region <region>             Region to print in OCI config"
   exit 1 ;;
  * )
   echo -e "${RED}Invalid argument: $1${RESET}"
@@ -92,12 +101,75 @@ function check() {
  fi
 }
 
+function read_oci_config_value() {
+ local profile="$1"
+ local key="$2"
+ local config_file="${OCI_CLI_CONFIG_FILE:-$HOME/.oci/config}"
+
+ [ -r "$config_file" ] || return 0
+
+ awk -v profile="$profile" -v key="$key" '
+  function trim(value) {
+   sub(/^[[:space:]]+/, "", value)
+   sub(/[[:space:]]+$/, "", value)
+   return value
+  }
+
+  /^[[:space:]]*(#|;|$)/ {
+   next
+  }
+
+  /^[[:space:]]*\[/ {
+   section = $0
+   sub(/^[[:space:]]*\[/, "", section)
+   sub(/\].*$/, "", section)
+   in_profile = (trim(section) == profile)
+   next
+  }
+
+  in_profile {
+   line = $0
+   equals = index(line, "=")
+   if (equals == 0) {
+    next
+   }
+
+   found_key = trim(substr(line, 1, equals - 1))
+   if (found_key == key) {
+    print trim(substr(line, equals + 1))
+    exit
+   }
+  }
+ ' "$config_file"
+}
+
+function infer_region_from_availability_domain() {
+ local ad_name="$1"
+
+ printf '%s' "$ad_name" | sed -n 's/.*:\([A-Za-z][A-Za-z0-9-]*-[0-9]\)-AD-[0-9].*/\1/p' | tr '[:upper:]' '[:lower:]'
+}
+
 # Get tenancy OCID
 compartment_id=$(oci iam availability-domain list \
   --query 'data[0]."compartment-id"' \
   --raw-output)
 
 echo -e "${GREEN}Tenancy OCID: $compartment_id${RESET}"
+
+if [ -z "$region" ]; then
+ region=$(read_oci_config_value "${OCI_CLI_PROFILE:-DEFAULT}" "region")
+fi
+
+if [ -z "$region" ]; then
+ availability_domain_name=$(oci iam availability-domain list \
+   --query 'data[0]."name"' \
+   --raw-output)
+ region=$(infer_region_from_availability_domain "$availability_domain_name")
+fi
+
+if [ -z "$region" ]; then
+ region="<your OCI region>"
+fi
 
 # Delete existing group
 group_id_old=$(oci iam group list \
@@ -188,6 +260,7 @@ add_result=$(oci iam group add-user \
 check "$add_result" "User added to group"
 
 # Upload API key (optional)
+api_key_fingerprint=""
 if [ -n "$api_key_file" ]; then
  if [ ! -f "$api_key_file" ]; then
   echo -e "${RED}API key file not found: $api_key_file${RESET}"
@@ -202,8 +275,33 @@ if [ -n "$api_key_file" ]; then
    --output json)
 
  check "$api_key_result" "API key uploaded successfully"
+ api_key_fingerprint=$(printf '%s' "$api_key_result" | jq -er '.data.fingerprint // empty' 2>/dev/null)
 else
  echo -e "${GREEN}No API key file provided, skipping upload${RESET}"
 fi
 
 echo -e "${GREEN}Setup completed successfully${RESET}"
+
+# Get OCI user API key info and print OCI CLI config at the very end.
+api_key_info=$(oci iam user api-key list \
+  --user-id $user_id \
+  --output json 2>&1)
+
+check "$api_key_info" "API key info fetched"
+
+if [ -z "$api_key_fingerprint" ]; then
+ api_key_fingerprint=$(printf '%s' "$api_key_info" | jq -er '.data | sort_by(."time-created") | reverse | .[0].fingerprint // empty' 2>/dev/null)
+fi
+
+if [ -z "$api_key_fingerprint" ]; then
+ api_key_fingerprint="<api key fingerprint>"
+fi
+
+cat <<EOF
+[DEFAULT]
+user=$user_id
+fingerprint=$api_key_fingerprint
+tenancy=$compartment_id
+region=$region
+key_file=$private_key_file
+EOF
